@@ -1,37 +1,84 @@
+import yfinance as yf
 import pandas as pd
 import numpy as np
-import yfinance as yf
+import matplotlib.pyplot as plt
 
-def calculate_moving_averages(prices, short_window=20, long_window=50):
-    short_ma = prices.rolling(window=short_window).mean()
-    long_ma = prices.rolling(window=long_window).mean()
-    return short_ma, long_ma
+symbol = 'TSLA'  # Tesla.
+data = yf.download(symbol, start='2020-01-01', end='2023-12-31')
 
-def backtest_strategy(prices, short_ma, long_ma):
-    signals = pd.DataFrame(index=prices.index)
-    signals['price'] = prices
-    signals['short_ma'] = short_ma
-    signals['long_ma'] = long_ma
-    signals['signal'] = 0
-    signals['signal'][short_ma > long_ma] = 1
-    signals['signal'][short_ma <= long_ma] = 0
-    signals['positions'] = signals['signal'].diff()
-    return signals
+data = data[['Open', 'High', 'Low', 'Close', 'Volume']]
+data.columns = ['open', 'high', 'low', 'close', 'volume']
+data = data.sort_index()
 
-def plot_signals(signals):
-    import matplotlib.pyplot as plt
-    plt.figure(figsize=(14, 7))
-    plt.plot(signals['price'], label='Price')
-    plt.plot(signals['short_ma'], label='20-day MA')
-    plt.plot(signals['long_ma'], label='50-day MA')
-    plt.plot(signals[signals['positions'] == 1].index, signals['short_ma'][signals['positions'] == 1], '^', markersize=10, color='g', lw=0, label='Buy Signal')
-    plt.plot(signals[signals['positions'] == -1].index, signals['short_ma'][signals['positions'] == -1], 'v', markersize=10, color='r', lw=0, label='Sell Signal')
-    plt.legend()
-    plt.show()
+data['20_MA'] = data['close'].rolling(window=20).mean()
+data['50_MA'] = data['close'].rolling(window=50).mean()
 
-# Example usage
-data = yf.download('TSLA', start='2020-01-01', end='2022-01-01')
-prices = data['Close']
-short_ma, long_ma = calculate_moving_averages(prices)
-signals = backtest_strategy(prices, short_ma, long_ma)
-plot_signals(signals)
+def calculate_rsi(data, window=14):
+    delta = data['close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=window).mean()
+    rs = gain / loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
+
+data['RSI'] = calculate_rsi(data)
+
+def calculate_macd(data, short_window=12, long_window=26, signal_window=9):
+    short_ema = data['close'].ewm(span=short_window, adjust=False).mean()
+    long_ema = data['close'].ewm(span=long_window, adjust=False).mean()
+    macd = short_ema - long_ema
+    signal = macd.ewm(span=signal_window, adjust=False).mean()
+    return macd, signal
+
+data['MACD'], data['Signal_Line'] = calculate_macd(data)
+
+fig, (ax1, ax2, ax3) = plt.subplots(3, figsize=(14, 14))
+
+ax1.plot(data['close'], label='Close Price')
+ax1.plot(data['20_MA'], label='20-Day MA')
+ax1.plot(data['50_MA'], label='50-Day MA')
+ax1.set_title(f'{symbol} Stock Price and Moving Averages')
+ax1.set_ylabel('Price')
+ax1.legend()
+
+ax2.plot(data['RSI'], label='RSI', color='orange')
+ax2.axhline(70, color='red', linestyle='--')
+ax2.axhline(30, color='green', linestyle='--')
+ax2.set_title('Relative Strength Index (RSI)')
+ax2.set_ylabel('RSI')
+ax2.legend()
+
+ax3.plot(data['MACD'], label='MACD', color='blue')
+ax3.plot(data['Signal_Line'], label='Signal Line', color='red')
+ax3.set_title('MACD')
+ax3.set_ylabel('MACD')
+ax3.legend()
+
+plt.show()
+
+def moving_average_crossover_strategy(data):
+    data['Position'] = np.where(data['20_MA'] > data['50_MA'], 1, 0)
+    data['Position'] = np.where(data['20_MA'] < data['50_MA'], -1, data['Position'])
+    data['Strategy_Return'] = data['Position'].shift(1) * data['close'].pct_change()
+    data.dropna(inplace=True)
+    return data
+
+data = moving_average_crossover_strategy(data)
+
+total_return = data['Strategy_Return'].sum()
+annualized_return = (1 + total_return) ** (252 / len(data)) - 1
+sharpe_ratio = (data['Strategy_Return'].mean() / data['Strategy_Return'].std()) * np.sqrt(252)
+
+print(f'Total Return: {total_return * 100:.2f}%')
+print(f'Annualized Return: {annualized_return * 100:.2f}%')
+print(f'Sharpe Ratio: {sharpe_ratio:.2f}')
+
+data['Equity_Curve'] = (1 + data['Strategy_Return']).cumprod()
+
+plt.figure(figsize=(14, 7))
+plt.plot(data['Equity_Curve'], label='Equity Curve')
+plt.title('Equity Curve of the Moving Average Crossover Strategy')
+plt.xlabel('Date')
+plt.ylabel('Equity')
+plt.legend()
+plt.show()
