@@ -3,16 +3,20 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
+# Step 1: Download Historical Stock Price Data
 symbol = 'TSLA'  # Tesla.
 data = yf.download(symbol, start='2020-01-01', end='2023-12-31')
 
+# Step 2: Data Cleaning and Preprocessing
 data = data[['Open', 'High', 'Low', 'Close', 'Volume']]
 data.columns = ['open', 'high', 'low', 'close', 'volume']
 data = data.sort_index()
 
+# Step 3: Calculate Moving Averages and Plot
 data['20_MA'] = data['close'].rolling(window=20).mean()
 data['50_MA'] = data['close'].rolling(window=50).mean()
 
+# Step 4: Implement RSI Calculation
 def calculate_rsi(data, window=14):
     delta = data['close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
@@ -23,6 +27,7 @@ def calculate_rsi(data, window=14):
 
 data['RSI'] = calculate_rsi(data)
 
+# Step 5: Implement MACD Calculation
 def calculate_macd(data, short_window=12, long_window=26, signal_window=9):
     short_ema = data['close'].ewm(span=short_window, adjust=False).mean()
     long_ema = data['close'].ewm(span=long_window, adjust=False).mean()
@@ -32,8 +37,10 @@ def calculate_macd(data, short_window=12, long_window=26, signal_window=9):
 
 data['MACD'], data['Signal_Line'] = calculate_macd(data)
 
+# Step 6: Combined Plot with Buy/Sell Signals
 fig, (ax1, ax2, ax3) = plt.subplots(3, figsize=(14, 14))
 
+# Plot stock price and moving averages
 ax1.plot(data['close'], label='Close Price')
 ax1.plot(data['20_MA'], label='20-Day MA')
 ax1.plot(data['50_MA'], label='50-Day MA')
@@ -41,6 +48,7 @@ ax1.set_title(f'{symbol} Stock Price and Moving Averages')
 ax1.set_ylabel('Price')
 ax1.legend()
 
+# Plot RSI
 ax2.plot(data['RSI'], label='RSI', color='orange')
 ax2.axhline(70, color='red', linestyle='--')
 ax2.axhline(30, color='green', linestyle='--')
@@ -48,14 +56,14 @@ ax2.set_title('Relative Strength Index (RSI)')
 ax2.set_ylabel('RSI')
 ax2.legend()
 
+# Plot MACD
 ax3.plot(data['MACD'], label='MACD', color='blue')
 ax3.plot(data['Signal_Line'], label='Signal Line', color='red')
 ax3.set_title('MACD')
 ax3.set_ylabel('MACD')
 ax3.legend()
 
-plt.show()
-
+# Step 6.1: Implement Simple Moving Average Crossover Strategy with Buy/Sell Signals
 def moving_average_crossover_strategy(data):
     data['Position'] = np.where(data['20_MA'] > data['50_MA'], 1, 0)
     data['Position'] = np.where(data['20_MA'] < data['50_MA'], -1, data['Position'])
@@ -65,6 +73,18 @@ def moving_average_crossover_strategy(data):
 
 data = moving_average_crossover_strategy(data)
 
+# Find the crossover points for buy/sell signals
+buy_signals = data[(data['20_MA'] > data['50_MA']) & (data['20_MA'].shift(1) <= data['50_MA'].shift(1))]
+sell_signals = data[(data['20_MA'] < data['50_MA']) & (data['20_MA'].shift(1) >= data['50_MA'].shift(1))]
+
+# Plot buy and sell signals on the first subplot
+ax1.plot(buy_signals.index, buy_signals['close'], '^', markersize=10, color='g', label='Buy Signal', lw=0)
+ax1.plot(sell_signals.index, sell_signals['close'], 'v', markersize=10, color='r', label='Sell Signal', lw=0)
+ax1.legend()
+
+plt.show()
+
+# Step 6.2: Backtest and Calculate Performance Metrics
 total_return = data['Strategy_Return'].sum()
 annualized_return = (1 + total_return) ** (252 / len(data)) - 1
 sharpe_ratio = (data['Strategy_Return'].mean() / data['Strategy_Return'].std()) * np.sqrt(252)
@@ -73,6 +93,7 @@ print(f'Total Return: {total_return * 100:.2f}%')
 print(f'Annualized Return: {annualized_return * 100:.2f}%')
 print(f'Sharpe Ratio: {sharpe_ratio:.2f}')
 
+# Step 6.3: Plot Equity Curve
 data['Equity_Curve'] = (1 + data['Strategy_Return']).cumprod()
 
 plt.figure(figsize=(14, 7))
